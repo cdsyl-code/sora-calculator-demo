@@ -311,3 +311,54 @@ export function exportToCSV(
   link.click();
   document.body.removeChild(link);
 }
+
+/**
+ * Export Amortization Table & Chart to Markdown (.md) format
+ */
+export function exportToMarkdown(
+  rows: AnnualAmortizationRow[],
+  loanAmount: number,
+  tenureYears: number,
+  allInRate: number,
+  monthlyPayment: number,
+  totalInterest: number
+): void {
+  const mdRows = [
+    `# SORA Mortgage Amortization Schedule (MAS Benchmark)`,
+    `**Monetary Authority of Singapore (MAS) Benchmark Framework**`,
+    '',
+    `## Loan Summary`,
+    `- **Loan Principal**: SGD ${loanAmount.toLocaleString('en-SG')}`,
+    `- **Loan Tenure**: ${tenureYears} Years (${tenureYears * 12} Months)`,
+    `- **Effective All-In Rate**: ${allInRate.toFixed(4)}% p.a.`,
+    `- **Estimated Monthly Installment**: SGD ${monthlyPayment.toFixed(2)}`,
+    `- **Total Lifetime Repayment**: SGD ${(monthlyPayment * tenureYears * 12).toFixed(2)}`,
+    `- **Total Interest Payable**: SGD ${totalInterest.toFixed(2)}`,
+    `- **Date Generated**: ${new Date().toISOString().split('T')[0]}`,
+    '',
+    `## Annual Amortization Table`,
+    `| Year | Beginning Balance (SGD) | Annual Payment (SGD) | Principal Paid (SGD) | Interest Paid (SGD) | Ending Balance (SGD) | Cumulative Interest (SGD) |`,
+    `| :---: | :---: | :---: | :---: | :---: | :---: | :---: |`,
+  ];
+
+  for (const r of rows) {
+    mdRows.push(
+      `| **${r.year}** | $${r.beginningBalance.toFixed(2)} | $${r.totalPayment.toFixed(2)} | $${r.principalPaid.toFixed(2)} | $${r.interestPaid.toFixed(2)} | $${r.endingBalance.toFixed(2)} | $${r.cumulativeInterest.toFixed(2)} |`
+    );
+  }
+
+  mdRows.push(
+    '',
+    `## Note on SORA Compounding`,
+    `Compounded SORA is published by the Monetary Authority of Singapore (MAS) using the official Actual/365 day count convention. Figures represent the standard amortization trajectory based on the current benchmark setting.`
+  );
+
+  const mdContent = 'data:text/markdown;charset=utf-8,' + encodeURIComponent(mdRows.join('\n'));
+  const link = document.createElement('a');
+  link.setAttribute('href', mdContent);
+  link.setAttribute('download', `SORA_Loan_Amortization_Schedule_${loanAmount}_${tenureYears}Y.md`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+

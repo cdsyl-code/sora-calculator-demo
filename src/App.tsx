@@ -269,6 +269,8 @@ export default function App() {
             loanAmount={params.loanAmount}
             tenureYears={params.tenureYears}
             allInRate={calculationResult.allInRate}
+            monthlyPayment={calculationResult.monthlyPayment}
+            totalInterest={calculationResult.totalInterest}
           />
         </section>
 

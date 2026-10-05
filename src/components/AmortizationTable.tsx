@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { AnnualAmortizationRow, AmortizationRow } from '../types/sora';
-import { formatSGD, formatCurrencyDecimals, exportToCSV } from '../utils/soraCalculator';
-import { Download, ChevronRight, FileSpreadsheet } from 'lucide-react';
+import { formatSGD, formatCurrencyDecimals, exportToCSV, exportToMarkdown } from '../utils/soraCalculator';
+import { Download, ChevronRight, FileSpreadsheet, FileText } from 'lucide-react';
 
 interface AmortizationTableProps {
   annualSchedule: AnnualAmortizationRow[];
@@ -9,6 +9,8 @@ interface AmortizationTableProps {
   loanAmount: number;
   tenureYears: number;
   allInRate: number;
+  monthlyPayment: number;
+  totalInterest: number;
 }
 
 export const AmortizationTable: React.FC<AmortizationTableProps> = ({
@@ -17,16 +19,29 @@ export const AmortizationTable: React.FC<AmortizationTableProps> = ({
   loanAmount,
   tenureYears,
   allInRate,
+  monthlyPayment,
+  totalInterest,
 }) => {
   const [viewMode, setViewMode] = useState<'annual' | 'monthly'>('annual');
   const [selectedYearFilter, setSelectedYearFilter] = useState<number>(1);
   const [searchTerm, setSearchTerm] = useState<string>('');
 
-  const filteredMonthly = monthlySchedule.filter((row) => row.year === selectedYearFilter);
-
-  const handleExport = () => {
+  const handleExportCSV = () => {
     exportToCSV(annualSchedule, loanAmount, tenureYears, allInRate);
   };
+
+  const handleExportMarkdown = () => {
+    exportToMarkdown(
+      annualSchedule,
+      loanAmount,
+      tenureYears,
+      allInRate,
+      monthlyPayment,
+      totalInterest
+    );
+  };
+
+  const filteredMonthly = monthlySchedule.filter((row) => row.year === selectedYearFilter);
 
   return (
     <div id="schedule" className="bg-white rounded-2xl border border-neutral-200 p-5 lg:p-6 shadow-xs">
@@ -65,11 +80,23 @@ export const AmortizationTable: React.FC<AmortizationTableProps> = ({
             </button>
           </div>
 
+          {/* Export to Markdown Button */}
+          <button
+            type="button"
+            onClick={handleExportMarkdown}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-neutral-700 bg-neutral-100 hover:bg-neutral-200 rounded-lg transition-colors cursor-pointer"
+            title="Download full schedule and report as Markdown (.md)"
+          >
+            <FileText className="w-3.5 h-3.5 text-neutral-600" />
+            <span>Export .md</span>
+          </button>
+
           {/* Export to CSV Button */}
           <button
             type="button"
-            onClick={handleExport}
+            onClick={handleExportCSV}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-neutral-700 bg-neutral-100 hover:bg-neutral-200 rounded-lg transition-colors cursor-pointer"
+            title="Download spreadsheet in CSV format"
           >
             <Download className="w-3.5 h-3.5" />
             <span>Export CSV</span>
