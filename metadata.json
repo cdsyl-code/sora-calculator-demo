@@ -1,0 +1,6 @@
+{
+  "name": "SORA Singapore Interest Calculator",
+  "description": "Singapore Overnight Rate Average (SORA) interest and mortgage calculator using MAS benchmark rates with compounded 1M/3M/6M models, amortization schedules, and TDSR stress testing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
