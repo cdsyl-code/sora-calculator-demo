@@ -17,7 +17,7 @@ export const BackendIntegrationModal: React.FC<BackendIntegrationModalProps> = (
   onSaveConfig,
   onTestConnection,
 }) => {
-  const [backendUrl, setBackendUrl] = useState(config.backendUrl || '/api/mas-sora');
+  const [backendUrl, setBackendUrl] = useState(config.backendUrl || '/api/sora');
   const [apiKey, setApiKey] = useState(config.apiKey || '');
   const [useCustomBackend, setUseCustomBackend] = useState(config.useCustomBackend);
   const [isTesting, setIsTesting] = useState(false);
@@ -34,12 +34,12 @@ export const BackendIntegrationModal: React.FC<BackendIntegrationModalProps> = (
       if (ok) {
         setTestResult({
           success: true,
-          message: 'Successfully reached backend and parsed SORA records.',
+          message: 'Successfully reached endpoint and parsed MAS SORA records.',
         });
       } else {
         setTestResult({
           success: false,
-          message: 'Endpoint unreachable or returned non-200. Will use MAS fallback series.',
+          message: 'Endpoint returned no records or KeyId is invalid. Using MAS benchmark fallback.',
         });
       }
     } catch (err: any) {
@@ -63,29 +63,30 @@ export const BackendIntegrationModal: React.FC<BackendIntegrationModalProps> = (
   };
 
   const sampleJsonSchema = `{
+  "success": true,
+  "source": "mas-apimg-gw",
   "records": [
     {
       "date": "2026-10-02",
       "sora": 2.8200,
       "compounded1M": 2.8450,
       "compounded3M": 2.9120,
-      "compounded6M": 2.9850,
-      "aggregateVolumeMillionSgd": 3840
+      "compounded6M": 2.9850
     }
   ]
 }`;
 
-  const sampleNodeSnippet = `// Sample Express / Node.js route for your backend:
-app.get('/api/mas-sora', async (req, res) => {
-  try {
-    const masUrl = 'https://eservices.mas.gov.sg/api/action/datastore/search.json?resource_id=9a0bf149-308d-4bd2-832d-76c8e6cb47ed&limit=30';
-    const response = await fetch(masUrl);
-    const data = await response.json();
-    res.json(data.result.records);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+  const sampleNodeSnippet = `// Serverless function (/api/sora.ts) connecting to MAS APIMG-GW:
+// Header required: KeyId: <MAS_KEY_ID>
+const MAS_ENDPOINT = 'https://eservices.mas.gov.sg/apimg-gw/server/monthly_statistical_bulletin_non610ora/interest_rates_of_banks_and_finance_companies_monthly/views/interest_rates_of_banks_and_finance_companies_monthly';
+
+const response = await fetch(MAS_ENDPOINT, {
+  headers: {
+    'KeyId': process.env.MAS_KEY_ID,
+    'Accept': 'application/json'
   }
-});`;
+});
+const data = await response.json();`;
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);

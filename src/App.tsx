@@ -42,7 +42,7 @@ const DEFAULT_LOAN_PARAMS: LoanInputParams = {
 };
 
 const DEFAULT_BACKEND_CONFIG: BackendConfig = {
-  backendUrl: '/api/mas-sora',
+  backendUrl: '/api/sora',
   useCustomBackend: false,
   syncStatus: 'idle',
 };

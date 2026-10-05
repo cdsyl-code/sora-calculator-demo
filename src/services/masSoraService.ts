@@ -1,14 +1,11 @@
 /**
  * MAS SORA Data Service
  * Reads official Monetary Authority of Singapore overnight rates & compounded benchmark series.
- * Supports direct MAS Open Data API / custom backend integration with offline fallback.
+ * Connects via local serverless endpoint (/api/sora) or custom endpoint with KeyId header.
  */
 
 import { MasSoraRecord, SoraTenor } from '../types/sora';
 import { MAS_HISTORICAL_SORA_DATA, LATEST_MAS_SORA } from '../data/masHistoricalRates';
-
-const DEFAULT_MAS_API_RESOURCE = '9a0bf149-308d-4bd2-832d-76c8e6cb47ed'; // MAS SORA Datastore ID
-const MAS_API_BASE = 'https://eservices.mas.gov.sg/api/action/datastore/search.json';
 
 export interface FetchSoraResult {
   records: MasSoraRecord[];
@@ -19,7 +16,7 @@ export interface FetchSoraResult {
 }
 
 /**
- * Fetch latest SORA data from MAS or custom user backend
+ * Fetch latest SORA data via serverless /api/sora endpoint or custom backend
  */
 export async function fetchLatestSoraRates(
   customBackendUrl?: string,
@@ -33,8 +30,9 @@ export async function fetchLatestSoraRates(
       const headers: Record<string, string> = {
         'Accept': 'application/json',
       };
-      if (apiKey) {
-        headers['Authorization'] = `Bearer ${apiKey}`;
+      if (apiKey && apiKey.trim() !== '') {
+        headers['KeyId'] = apiKey.trim();
+        headers['Authorization'] = `Bearer ${apiKey.trim()}`;
       }
 
       const response = await fetch(customBackendUrl, {
@@ -43,11 +41,11 @@ export async function fetchLatestSoraRates(
       });
 
       if (!response.ok) {
-        throw new Error(`Custom backend responded with HTTP status ${response.status}`);
+        throw new Error(`Endpoint responded with HTTP ${response.status}`);
       }
 
       const json = await response.json();
-      const records = parseCustomBackendResponse(json);
+      const records = parseBackendResponse(json);
 
       if (records && records.length > 0) {
         return {
@@ -58,41 +56,43 @@ export async function fetchLatestSoraRates(
         };
       }
     } catch (err: unknown) {
-      console.warn('Custom backend fetch failed, trying fallback:', err);
+      console.warn('Custom backend fetch failed, proceeding to serverless API:', err);
     }
   }
 
-  // 2. Try fetching from public MAS Open API
+  // 2. Query the local serverless /api/sora endpoint
   try {
-    const targetUrl = `${MAS_API_BASE}?resource_id=${DEFAULT_MAS_API_RESOURCE}&limit=30&sort=end_of_day desc`;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3500); // 3.5s timeout for fast UI response
+    const headers: Record<string, string> = {
+      'Accept': 'application/json',
+    };
+    if (apiKey && apiKey.trim() !== '') {
+      headers['KeyId'] = apiKey.trim();
+    }
 
-    const res = await fetch(targetUrl, {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+    const res = await fetch('/api/sora', {
+      method: 'GET',
+      headers,
       signal: controller.signal,
-      headers: {
-        'Accept': 'application/json',
-      },
     });
     clearTimeout(timeoutId);
 
     if (res.ok) {
       const data = await res.json();
-      if (data?.result?.records && Array.isArray(data.result.records) && data.result.records.length > 0) {
-        const parsed = parseMasApiResponse(data.result.records);
-        if (parsed.length > 0) {
-          return {
-            records: parsed,
-            latest: parsed[0],
-            source: 'mas-live-api',
-            lastUpdated: now,
-          };
-        }
+      const records = parseBackendResponse(data);
+      if (records.length > 0) {
+        return {
+          records,
+          latest: records[0],
+          source: 'mas-live-api',
+          lastUpdated: now,
+        };
       }
     }
   } catch (err) {
-    // In browser environments, CORS can occasionally block direct client requests to MAS portal without a proxy.
-    // This is expected and handled gracefully by using the verified MAS benchmark dataset.
+    // Falls back to MAS benchmark data if serverless endpoint is running without key or offline
   }
 
   // 3. Fallback to our authentic MAS benchmark series
@@ -105,57 +105,41 @@ export async function fetchLatestSoraRates(
 }
 
 /**
- * Normalizes MAS Open Data Portal records
+ * Normalizes API payloads from /api/sora or external backend
  */
-function parseMasApiResponse(rawRecords: any[]): MasSoraRecord[] {
-  return rawRecords.map((r: any) => {
-    const soraVal = parseFloat(r.sora || r.overnight_rate || r.value || '2.82');
-    const comp1M = parseFloat(r.sor_1m || r.compounded_1m || r.comp_1m || (soraVal + 0.02).toFixed(4));
-    const comp3M = parseFloat(r.sor_3m || r.compounded_3m || r.comp_3m || (soraVal + 0.08).toFixed(4));
-    const comp6M = parseFloat(r.sor_6m || r.compounded_6m || r.comp_6m || (soraVal + 0.15).toFixed(4));
-    const vol = parseFloat(r.aggregate_volume || r.volume_mil || '3800');
+function parseBackendResponse(json: any): MasSoraRecord[] {
+  const list = json?.records || json?.result?.records || (Array.isArray(json) ? json : json?.data || []);
 
-    return {
-      date: r.end_of_day || r.date || new Date().toISOString().split('T')[0],
-      sora: Number.isNaN(soraVal) ? 2.82 : soraVal,
-      compounded1M: Number.isNaN(comp1M) ? 2.84 : comp1M,
-      compounded3M: Number.isNaN(comp3M) ? 2.91 : comp3M,
-      compounded6M: Number.isNaN(comp6M) ? 2.98 : comp6M,
-      aggregateVolumeMillionSgd: Number.isNaN(vol) ? 3800 : vol,
-      calculationMethod: 'Volume-Weighted Average',
-    };
-  });
-}
+  if (Array.isArray(list) && list.length > 0) {
+    return list.map((r: any) => {
+      const soraVal = parseFloat(r.sora || r.overnight_rate || r.rate || '2.82');
+      const comp1M = parseFloat(r.compounded1M || r.sora_compounded_1m || r.sor_1m || r.comp_1m || soraVal.toString());
+      const comp3M = parseFloat(r.compounded3M || r.sora_compounded_3m || r.sor_3m || r.comp_3m || soraVal.toString());
+      const comp6M = parseFloat(r.compounded6M || r.sora_compounded_6m || r.sor_6m || r.comp_6m || soraVal.toString());
+      const vol = r.aggregateVolumeMillionSgd || r.volume_mil ? parseFloat(r.aggregateVolumeMillionSgd || r.volume_mil) : undefined;
 
-/**
- * Normalizes custom user backend payloads
- */
-function parseCustomBackendResponse(json: any): MasSoraRecord[] {
-  if (Array.isArray(json)) {
-    return json.map(item => ({
-      date: item.date || item.publicationDate || new Date().toISOString().split('T')[0],
-      sora: parseFloat(item.sora || item.rate || 0),
-      compounded1M: parseFloat(item.compounded1M || item.sor1M || item.sora || 0),
-      compounded3M: parseFloat(item.compounded3M || item.sor3M || item.sora || 0),
-      compounded6M: parseFloat(item.compounded6M || item.sor6M || item.sora || 0),
-      aggregateVolumeMillionSgd: item.volume ? parseFloat(item.volume) : undefined,
-      calculationMethod: item.calculationMethod || 'Volume-Weighted Average',
-    }));
+      return {
+        date: r.date || r.end_of_day || r.end_of_month || new Date().toISOString().split('T')[0],
+        sora: Number.isNaN(soraVal) ? 2.82 : soraVal,
+        compounded1M: Number.isNaN(comp1M) ? 2.84 : comp1M,
+        compounded3M: Number.isNaN(comp3M) ? 2.91 : comp3M,
+        compounded6M: Number.isNaN(comp6M) ? 2.98 : comp6M,
+        aggregateVolumeMillionSgd: vol,
+        calculationMethod: r.calculationMethod || 'Volume-Weighted Average',
+      };
+    });
   }
 
-  if (json.data && Array.isArray(json.data)) {
-    return parseCustomBackendResponse(json.data);
-  }
-
-  if (json.latest || json.sora) {
-    const single = json.latest || json;
+  if (json?.latest) {
+    const single = json.latest;
     return [{
       date: single.date || new Date().toISOString().split('T')[0],
-      sora: parseFloat(single.sora || 0),
-      compounded1M: parseFloat(single.compounded1M || single.sora || 0),
-      compounded3M: parseFloat(single.compounded3M || single.sora || 0),
-      compounded6M: parseFloat(single.compounded6M || single.sora || 0),
+      sora: parseFloat(single.sora || '2.82'),
+      compounded1M: parseFloat(single.compounded1M || single.sora || '2.84'),
+      compounded3M: parseFloat(single.compounded3M || single.sora || '2.91'),
+      compounded6M: parseFloat(single.compounded6M || single.sora || '2.98'),
       aggregateVolumeMillionSgd: single.aggregateVolumeMillionSgd,
+      calculationMethod: single.calculationMethod || 'Volume-Weighted Average',
     }];
   }
 
@@ -183,29 +167,4 @@ export function getBenchmarkRate(record: MasSoraRecord, tenor: SoraTenor, custom
     default:
       return record.compounded3M;
   }
-}
-
-/**
- * Standard MAS Compounding Formula calculation
- * r_comp = [ Product_{i=1}^d (1 + (r_i * n_i) / 365) - 1 ] * (365 / d)
- */
-export function calculateCompoundedSora(
-  dailyRates: { rate: number; days: number }[]
-): number {
-  if (dailyRates.length === 0) return 0;
-  
-  let totalCalendarDays = 0;
-  let product = 1;
-
-  for (const item of dailyRates) {
-    totalCalendarDays += item.days;
-    // item.rate is in % (e.g. 2.85 for 2.85%)
-    const dailyFactor = 1 + ((item.rate / 100) * item.days) / 365;
-    product *= dailyFactor;
-  }
-
-  if (totalCalendarDays === 0) return 0;
-
-  const compoundedAnnualRate = (product - 1) * (365 / totalCalendarDays) * 100;
-  return parseFloat(compoundedAnnualRate.toFixed(4));
 }
